@@ -24,9 +24,10 @@ jobs:
         uses: actions/configure-pages@v6
       - name: Prepare public files
         run: |
-          mkdir -p public/bridge
+          mkdir -p public/bridge public/assets
           cp CNAME index.html app.js session.js client.js public/
           cp bridge/index.html bridge/bridge.js public/bridge/
+          cp assets/joe-logo.webp public/assets/
       - name: Upload static site
         uses: actions/upload-pages-artifact@v4
         with:

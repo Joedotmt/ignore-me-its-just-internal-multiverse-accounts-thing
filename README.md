@@ -6,6 +6,9 @@ Discord, and email one-time-code sign-in. PocketBase stores the central session 
 this origin's local storage. No bearer token is placed in a URL or a parent-domain
 cookie.
 
+The page keeps the original joe.mt five-step BeerCSS account wizard: account
+choice, provider, email, one-time code, and success.
+
 ## App integration
 
 Load `https://accounts.joe.mt/client.js` as a classic script. It immediately
