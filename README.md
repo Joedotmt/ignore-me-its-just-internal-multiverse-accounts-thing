@@ -57,10 +57,12 @@ appended to the return URL's **fragment** as `#joe_session=<token>`. A fragment 
 never sent to a server, stays out of `Referer`, and never reaches an access log.
 `client.js` reads it as it loads and calls `history.replaceState` in the same tick,
 so it never lingers in the address bar or in a URL the user might share, then
-offers it to the app exactly once through `takeHandoffToken()`. Expired tokens and
-tokens that are not `authRecord` are dropped. An app receiving one should call
-`authRefresh()` with it, which fills in the record and confirms the server still
-accepts the token.
+offers it to the app exactly once through `takeHandoffToken()`. A token that is
+expired, malformed, or not a record auth token (PocketBase 0.23+ marks those
+`type: "auth"`) is dropped, and `handoffProblem()` says which, so the app can show
+something better than "sign in required" again. An app receiving a token should
+call `authRefresh()` with it, which fills in the record and confirms the server
+still accepts the token.
 
 Anything on `HANDOFF_ORIGINS` can obtain the signed-in user's session with no
 further prompt, since an already-signed-in visit redirects straight back. Keep the

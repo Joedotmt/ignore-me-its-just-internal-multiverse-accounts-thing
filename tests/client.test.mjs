@@ -14,8 +14,10 @@ function jwt(payload) {
   const b64 = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
   return `${b64({ alg: 'HS256' })}.${b64(payload)}.signature`;
 }
-const liveToken = jwt({ type: 'authRecord', exp: Math.floor(Date.now() / 1000) + 3600 });
-const expiredToken = jwt({ type: 'authRecord', exp: Math.floor(Date.now() / 1000) - 10 });
+// PocketBase 0.23+ marks record auth tokens with type "auth", as the SDK checks.
+const liveToken = jwt({ type: 'auth', exp: Math.floor(Date.now() / 1000) + 3600 });
+const expiredToken = jwt({ type: 'auth', exp: Math.floor(Date.now() / 1000) - 10 });
+const wrongTypeToken = jwt({ type: 'file', exp: Math.floor(Date.now() / 1000) + 3600 });
 
 // Loads the real client.js against a fake browser sitting at the given URL.
 function loadClient(href) {
@@ -79,9 +81,27 @@ test('an unrelated fragment survives the strip', () => {
   assert.equal(location.hash, '#note=abc');
 });
 
-test('an expired handed-over session is refused', () => {
+test('an expired handed-over session is refused, and says why', () => {
   const { api } = loadClient(`http://localhost:5173/#joe_session=${expiredToken}`);
   assert.equal(api.takeHandoffToken(), '');
+  assert.equal(api.handoffProblem(), 'expired');
+});
+
+test('a token that is not a record auth token is refused, and says why', () => {
+  const { api } = loadClient(`http://localhost:5173/#joe_session=${wrongTypeToken}`);
+  assert.equal(api.takeHandoffToken(), '');
+  assert.equal(api.handoffProblem(), 'wrong-type');
+});
+
+test('a token that is not a JWT at all is refused, and says why', () => {
+  const { api } = loadClient('http://localhost:5173/#joe_session=not-a-token');
+  assert.equal(api.takeHandoffToken(), '');
+  assert.equal(api.handoffProblem(), 'malformed');
+});
+
+test('a usable token reports no problem', () => {
+  const { api } = loadClient(`http://localhost:5173/#joe_session=${liveToken}`);
+  assert.equal(api.handoffProblem(), '');
 });
 
 test('a fragment on an origin this site does not serve is ignored', () => {

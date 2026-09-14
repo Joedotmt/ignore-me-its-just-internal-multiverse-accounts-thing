@@ -52,11 +52,12 @@
    * bar in the same tick, so it never reaches a server, a Referer header, or a URL the
    * user might share. Runs once at load; takeHandoffToken() passes it to the app.
    */
-  const handoffToken = (() => {
-    if (!canHandoff() || !global.location.hash) return '';
+  const handoff = (() => {
+    const none = { token: '', problem: '' };
+    if (!canHandoff() || !global.location.hash) return none;
     const fragment = new URLSearchParams(global.location.hash.replace(/^#/, ''));
     const token = fragment.get(HANDOFF_PARAM);
-    if (!token) return '';
+    if (!token) return none;
 
     fragment.delete(HANDOFF_PARAM);
     const rest = fragment.toString();
@@ -66,22 +67,34 @@
     } catch (_) {
       global.location.hash = rest;
     }
-    return token;
+
+    // A token that arrived but cannot be used is reported, not silently dropped, so the
+    // app can tell the user something other than "sign in required" again.
+    const payload = tokenPayload(token);
+    if (!payload) return { token: '', problem: 'malformed' };
+    // PocketBase 0.23+ marks record auth tokens with type "auth" (the older "authRecord"
+    // is never issued by a current server).
+    if (payload.type !== 'auth') return { token: '', problem: 'wrong-type' };
+    if (!(typeof payload.exp === 'number' && payload.exp > Date.now() / 1000)) {
+      return { token: '', problem: 'expired' };
+    }
+    return { token, problem: '' };
   })();
 
   let handoffTaken = false;
 
   /**
    * The session token handed over by the account site, once. Returns '' when there was
-   * none, when it has already been read, or when it is not a live users token.
+   * none, when it has already been read, or when it was unusable (see handoffProblem).
    */
   function takeHandoffToken() {
-    if (handoffTaken || !handoffToken) return '';
+    if (handoffTaken) return '';
     handoffTaken = true;
-    const payload = tokenPayload(handoffToken);
-    const live = typeof payload?.exp === 'number' && payload.exp > Date.now() / 1000;
-    return live && payload?.type === 'authRecord' ? handoffToken : '';
+    return handoff.token;
   }
+
+  /** Why a handed-over token was refused: '' | 'malformed' | 'wrong-type' | 'expired'. */
+  function handoffProblem() { return handoff.problem; }
 
   function loginUrl(destination) {
     const url = new URL('/', ACCOUNTS_ORIGIN);
@@ -120,7 +133,7 @@
       const exp = tokenPayload(this._token)?.exp;
       return typeof exp === 'number' && exp > Date.now() / 1000;
     }
-    get isAuthRecord() { return tokenPayload(this._token)?.type === 'authRecord'; }
+    get isAuthRecord() { return tokenPayload(this._token)?.type === 'auth'; }
     get isSuperuser() { return false; }
     get isAdmin() { return false; }
 
@@ -204,6 +217,7 @@
     logoutUrl,
     canBridge,
     canHandoff,
-    takeHandoffToken
+    takeHandoffToken,
+    handoffProblem
   };
 })(window);
