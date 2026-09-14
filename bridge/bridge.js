@@ -1,11 +1,13 @@
 (function (global) {
   'use strict';
 
-  const { RETURN_ORIGINS, verifiedSession } = global.JoeAccountsCore;
+  // Only the same-site bridge origins, never the fragment-handoff ones: a cross-site
+  // caller gets its session through the redirect, not through this iframe.
+  const { BRIDGE_ORIGINS, verifiedSession } = global.JoeAccountsCore;
 
   global.addEventListener('message', async (event) => {
     if (global.parent === global || event.source !== global.parent) return;
-    if (!RETURN_ORIGINS.has(event.origin)) return;
+    if (!BRIDGE_ORIGINS.has(event.origin)) return;
 
     const data = event.data;
     if (!data || data.type !== 'joe-accounts:request' ||

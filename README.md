@@ -33,22 +33,63 @@ function signOut() {
 }
 ```
 
-The client loads a hidden `accounts.joe.mt/bridge/` iframe and sends a random
-nonce. The bridge only accepts requests from the exact origins `https://joe.mt`
-and `https://notes.joe.mt`, refreshes the central `users` token through PocketBase,
-and sends the result to that origin using `postMessage`. The client checks the
-reply's origin, iframe source, nonce, and shape. `getSession()` resolves to `null`
-when signed out and rejects on bridge/network failure; callers should distinguish
-that failure from a confirmed sign-out. The in-memory auth store keeps the app's
-copy of the token out of its `pocketbase_auth` local-storage key.
+### Two ways an app receives the session
 
-`loginUrl(returnUrl)` and `logoutUrl(returnUrl)` accept only absolute URLs on the
-two allowed HTTPS origins. The accounts page also enforces that allowlist for its
+`session.js` holds two allowlists, and which one an origin is on decides how it
+gets a session. `RETURN_ORIGINS` is their union, and is what `allowedReturnUrl`
+accepts as a `redirect` target.
+
+**`BRIDGE_ORIGINS` — same-site apps** (`joe.mt`, `notes.joe.mt`). The client loads
+a hidden `accounts.joe.mt/bridge/` iframe and sends a random nonce. The bridge
+refreshes the central `users` token through PocketBase and posts the result back
+to that origin. The client checks the reply's origin, iframe source, nonce, and
+shape. No token touches a URL, and the in-memory auth store keeps the app's copy
+out of its `pocketbase_auth` local-storage key.
+
+These origins **must be same-site with this page**. Browsers partition storage in
+a third-party context, so a cross-site bridge iframe reads an empty store and
+reports a signed-out user however the user is actually signed in. Adding a
+cross-site origin here does not work — it loops.
+
+**`HANDOFF_ORIGINS` — cross-site apps** (`localhost` dev servers by default).
+No iframe. The sign-in page stays here, and on the way back the session is
+appended to the return URL's **fragment** as `#joe_session=<token>`. A fragment is
+never sent to a server, stays out of `Referer`, and never reaches an access log.
+`client.js` reads it as it loads and calls `history.replaceState` in the same tick,
+so it never lingers in the address bar or in a URL the user might share, then
+offers it to the app exactly once through `takeHandoffToken()`. Expired tokens and
+tokens that are not `authRecord` are dropped. An app receiving one should call
+`authRefresh()` with it, which fills in the record and confirms the server still
+accepts the token.
+
+Anything on `HANDOFF_ORIGINS` can obtain the signed-in user's session with no
+further prompt, since an already-signed-in visit redirects straight back. Keep the
+list short and limited to apps under your control. `?logout=1` never carries a
+session back.
+
+`getSession()` resolves to `null` when signed out, rejects on bridge/network
+failure, and rejects immediately on a non-bridge origin; callers should
+distinguish failure from a confirmed sign-out. `canBridge()` and `canHandoff()`
+report which path an origin is on.
+
+`loginUrl(returnUrl)` and `logoutUrl(returnUrl)` accept only absolute URLs on an
+allowlisted origin, and strip any `joe_session` already present so a stale token
+cannot round-trip. The accounts page enforces the same allowlist for its
 `redirect` parameter. A visit with `?logout=1&redirect=...` clears the central
 session before returning to the app. Apps should recheck `getSession()` on load
 and when a tab regains focus. The new client removes the previous broad
 `joe_mt_users_auth` cookie when it loads; the accounts page leaves that cookie
 alone so older app deployments can continue working during rollout.
+
+## Tests
+
+```sh
+node --test tests/client.test.mjs
+```
+
+Covers the fragment handoff: read once, stripped before app code runs, unrelated
+fragments preserved, expired tokens refused, and non-allowlisted origins ignored.
+The Pages workflow copies a fixed file list, so `tests/` is never published.
 
 PocketBase auth tokens are stateless. Signing out removes the browser copies but
 does not immediately revoke any token that was already issued.

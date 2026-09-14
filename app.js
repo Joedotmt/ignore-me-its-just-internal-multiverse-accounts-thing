@@ -1,7 +1,14 @@
 (function (global) {
   'use strict';
 
-  const { pb, allowedReturnUrl, usersSession, verifiedSession } = global.JoeAccountsCore;
+  const {
+    pb,
+    allowedReturnUrl,
+    needsSessionHandoff,
+    returnUrlWithSession,
+    usersSession,
+    verifiedSession
+  } = global.JoeAccountsCore;
   const params = new URLSearchParams(global.location.search);
   const rawRedirect = params.get('redirect');
   const redirectTo = allowedReturnUrl(rawRedirect);
@@ -143,10 +150,24 @@
 
   global.hideMessageModal = () => hideModal(messageModal);
 
+  /**
+   * Sends the user back to the app they came from. A same-site app reads the session
+   * from this origin through the bridge, so it gets a plain URL; a cross-site app
+   * cannot, so the session travels in the fragment instead.
+   */
+  function returnToApp(replace) {
+    const session = usersSession();
+    const target = needsSessionHandoff(redirectTo) && session
+      ? returnUrlWithSession(redirectTo, session.token)
+      : redirectTo;
+    if (replace) global.location.replace(target);
+    else global.location.assign(target);
+  }
+
   function finishSignIn() {
     if (!usersSession()) throw new Error('PocketBase did not return a user session.');
     if (redirectTo) {
-      global.location.assign(redirectTo);
+      returnToApp(false);
       return;
     }
     goToStep(steps.success);
@@ -333,6 +354,7 @@
       pb.authStore.clear();
       global.history.replaceState(null, '', global.location.pathname);
       if (redirectTo) {
+        // Signed out, so there is deliberately no session to hand back.
         global.location.replace(redirectTo);
         return;
       }
@@ -342,7 +364,7 @@
     if (rawRedirect && !redirectTo) {
       showMessage(
         'Return link blocked',
-        'For your security, this sign-in page can only return to approved joe.mt apps.'
+        'For your security, this sign-in page can only return to approved apps.'
       );
     }
 
@@ -359,7 +381,7 @@
         return;
       }
       if (redirectTo) {
-        global.location.replace(redirectTo);
+        returnToApp(true);
         return;
       }
       goToStep(steps.success);

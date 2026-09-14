@@ -1,19 +1,33 @@
-// Load this on https://joe.mt or https://notes.joe.mt, before creating a PocketBase client.
-// AuthStore keeps the app's copy of the session in memory; only accounts.joe.mt persists it.
+// Load this before creating a PocketBase client, on any app origin this account site
+// serves. A same-site app reads the session through a hidden bridge iframe and keeps its
+// copy in memory; a cross-site app receives it once in the URL fragment on the way back
+// from sign-in. Only accounts.joe.mt persists the session itself.
 (function (global) {
   'use strict';
 
   const ACCOUNTS_ORIGIN = 'https://accounts.joe.mt';
-  const RETURN_ORIGINS = new Set(['https://joe.mt', 'https://notes.joe.mt']);
+  // Must match BRIDGE_ORIGINS and HANDOFF_ORIGINS in the account site's session.js.
+  const BRIDGE_ORIGINS = new Set(['https://joe.mt', 'https://notes.joe.mt']);
+  const HANDOFF_ORIGINS = new Set([
+    'http://localhost:5173',
+    'http://localhost:4173',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:4173'
+  ]);
+  const RETURN_ORIGINS = new Set([...BRIDGE_ORIGINS, ...HANDOFF_ORIGINS]);
+  const HANDOFF_PARAM = 'joe_session';
   const BRIDGE_TIMEOUT_MS = 12000;
 
   // Only the new client clears the previous shared cookie. This lets older app
   // deployments continue using it until they have been updated to this client.
-  if (RETURN_ORIGINS.has(global.location.origin)) {
+  if (BRIDGE_ORIGINS.has(global.location.origin)) {
     for (const name of ['joe_mt_users_auth', 'joe_mt_users_auth_initialized']) {
       global.document.cookie = `${name}=; Max-Age=0; Domain=joe.mt; Path=/; SameSite=Lax; Secure`;
     }
   }
+
+  function canBridge() { return BRIDGE_ORIGINS.has(global.location.origin); }
+  function canHandoff() { return HANDOFF_ORIGINS.has(global.location.origin); }
 
   function returnUrl(raw) {
     const candidate = raw === undefined ? global.location.href : raw;
@@ -21,9 +35,52 @@
     let url;
     try { url = new URL(candidate); } catch (_) { throw new TypeError('Return URL must be an absolute URL.'); }
     if (!RETURN_ORIGINS.has(url.origin) || url.username || url.password) {
-      throw new TypeError('Return URL must be on https://joe.mt or https://notes.joe.mt.');
+      throw new TypeError(`Return URL must be on an origin ${ACCOUNTS_ORIGIN} serves.`);
+    }
+    // The session gets handed back to this exact URL, so never let one travel in with it.
+    const fragment = new URLSearchParams(url.hash.replace(/^#/, ''));
+    if (fragment.has(HANDOFF_PARAM)) {
+      fragment.delete(HANDOFF_PARAM);
+      const rest = fragment.toString();
+      url.hash = rest ? `#${rest}` : '';
     }
     return url.href;
+  }
+
+  /**
+   * Reads a handed-over session out of the URL fragment and removes it from the address
+   * bar in the same tick, so it never reaches a server, a Referer header, or a URL the
+   * user might share. Runs once at load; takeHandoffToken() passes it to the app.
+   */
+  const handoffToken = (() => {
+    if (!canHandoff() || !global.location.hash) return '';
+    const fragment = new URLSearchParams(global.location.hash.replace(/^#/, ''));
+    const token = fragment.get(HANDOFF_PARAM);
+    if (!token) return '';
+
+    fragment.delete(HANDOFF_PARAM);
+    const rest = fragment.toString();
+    const cleaned = `${global.location.pathname}${global.location.search}${rest ? `#${rest}` : ''}`;
+    try {
+      global.history.replaceState(global.history.state, '', cleaned);
+    } catch (_) {
+      global.location.hash = rest;
+    }
+    return token;
+  })();
+
+  let handoffTaken = false;
+
+  /**
+   * The session token handed over by the account site, once. Returns '' when there was
+   * none, when it has already been read, or when it is not a live users token.
+   */
+  function takeHandoffToken() {
+    if (handoffTaken || !handoffToken) return '';
+    handoffTaken = true;
+    const payload = tokenPayload(handoffToken);
+    const live = typeof payload?.exp === 'number' && payload.exp > Date.now() / 1000;
+    return live && payload?.type === 'authRecord' ? handoffToken : '';
   }
 
   function loginUrl(destination) {
@@ -83,8 +140,11 @@
   }
 
   function getSession() {
-    // The bridge itself enforces the same allowlist; fail early on unsupported hosts.
-    returnUrl(global.location.href);
+    // Only a same-site caller can use the bridge. A cross-site app has already been
+    // handed its session in the fragment and has nothing to ask this iframe for.
+    if (!canBridge()) {
+      return Promise.reject(new Error(`${ACCOUNTS_ORIGIN} does not bridge sessions to this origin.`));
+    }
 
     return new Promise((resolve, reject) => {
       const bytes = new Uint8Array(16);
@@ -137,5 +197,13 @@
     });
   }
 
-  global.JoeAccounts = { AuthStore, getSession, loginUrl, logoutUrl };
+  global.JoeAccounts = {
+    AuthStore,
+    getSession,
+    loginUrl,
+    logoutUrl,
+    canBridge,
+    canHandoff,
+    takeHandoffToken
+  };
 })(window);
