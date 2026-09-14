@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Joe Accounts</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #f4f6f9; color: #182534; }
+    a { color: #1765a7; }
+    .shell { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+    header, footer { width: min(100%, 1100px); margin: 0 auto; padding: 24px; }
+    header { display: flex; align-items: center; gap: 12px; font-weight: 750; font-size: 18px; }
+    .mark { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; background: #1d5683; color: white; font-size: 23px; }
+    main { display: grid; place-items: center; padding: 20px 24px 60px; }
+    .card { width: min(100%, 440px); padding: 32px; background: white; border: 1px solid #dce3e9; border-radius: 22px; box-shadow: 0 18px 50px #1d3b5614; }
+    h1 { margin: 0 0 8px; font-size: clamp(27px, 5vw, 34px); letter-spacing: -.04em; }
+    p { margin: 0 0 20px; color: #526272; line-height: 1.5; }
+    .destination { padding: 12px 14px; border: 1px solid #dce3e9; border-radius: 12px; background: #f8fafc; font-size: 14px; color: #42576b; overflow-wrap: anywhere; }
+    .switch { display: flex; gap: 6px; margin: 24px 0 20px; padding: 5px; border-radius: 12px; background: #edf2f6; }
+    .switch button { flex: 1; border: 0; background: transparent; color: #455d72; }
+    .switch button[aria-pressed="true"] { background: white; color: #173b5b; box-shadow: 0 2px 7px #1d3b561a; }
+    button, .button-link { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 16px; border: 1px solid #cbd7e1; border-radius: 10px; background: white; color: #22374b; font: inherit; font-weight: 650; text-decoration: none; cursor: pointer; }
+    button:hover, .button-link:hover { border-color: #6e9bbd; background: #f7fbff; }
+    button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid #7bb8eb; outline-offset: 2px; }
+    button:disabled { opacity: .55; cursor: wait; }
+    .primary { background: #1d5683; border-color: #1d5683; color: white; }
+    .primary:hover { background: #17476d; border-color: #17476d; }
+    .stack { display: grid; gap: 10px; }
+    .stack > button, .stack > .button-link { width: 100%; }
+    .divider { display: flex; align-items: center; gap: 12px; margin: 22px 0; color: #738392; font-size: 13px; }
+    .divider::before, .divider::after { content: ""; flex: 1; border-top: 1px solid #dce3e9; }
+    label { display: block; margin-bottom: 8px; font-size: 14px; font-weight: 650; }
+    input { display: block; width: 100%; min-height: 46px; margin-bottom: 12px; padding: 11px 12px; border: 1px solid #bac9d6; border-radius: 10px; font: inherit; color: inherit; }
+    form button { width: 100%; }
+    .subtle { color: #687a8b; font-size: 13px; }
+    .account { margin-bottom: 24px; font-weight: 650; overflow-wrap: anywhere; }
+    .status { min-height: 22px; margin-top: 18px; margin-bottom: 0; font-size: 14px; }
+    .status.error { color: #a32b31; }
+    [hidden] { display: none !important; }
+    footer { color: #768695; font-size: 13px; text-align: center; }
+    @media (max-width: 480px) { main { padding: 12px 16px 36px; } .card { padding: 24px; } header, footer { padding: 18px; } }
+  </style>
+  <script defer src="https://cdn.jsdelivr.net/npm/pocketbase@0.28.1/dist/pocketbase.umd.js"></script>
+  <script defer src="/session.js"></script>
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <header><span class="mark" aria-hidden="true">J</span><span>Joe Accounts</span></header>
+    <main>
+      <section class="card" aria-label="Your Joe account">
+        <div id="signed-out">
+          <h1>Welcome</h1>
+          <p>Use your Joe account to sign in across Joe sites.</p>
+          <div id="destination-out" class="destination" hidden></div>
+          <div class="switch" role="group" aria-label="Account action">
+            <button id="sign-in-mode" type="button" aria-pressed="true">Sign in</button>
+            <button id="create-mode" type="button" aria-pressed="false">Create account</button>
+          </div>
+          <div class="stack" aria-label="Sign in provider">
+            <button type="button" data-provider="google">Continue with Google</button>
+            <button type="button" data-provider="github">Continue with GitHub</button>
+            <button type="button" data-provider="discord">Continue with Discord</button>
+          </div>
+          <div class="divider">or use email</div>
+          <form id="email-form">
+            <label for="email">Email address</label>
+            <input id="email" name="email" type="email" autocomplete="email" required>
+            <button id="email-submit" class="primary" type="submit">Send sign-in code</button>
+          </form>
+        </div>
+        <div id="code-view" hidden>
+          <h1>Check your email</h1>
+          <p>Enter the one-time code sent to <strong id="code-email"></strong>.</p>
+          <form id="code-form">
+            <label for="code">One-time code</label>
+            <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" required>
+            <button class="primary" type="submit">Verify and sign in</button>
+          </form>
+          <button id="code-back" type="button">Use a different email</button>
+        </div>
+        <div id="signed-in" hidden>
+          <h1>You're signed in</h1>
+          <p class="account" id="account-name"></p>
+          <div id="destination-in" class="destination" hidden></div>
+          <div class="stack" style="margin-top: 22px">
+            <a id="continue-link" class="button-link primary" hidden>Continue</a>
+            <button id="sign-out" type="button">Sign out</button>
+          </div>
+        </div>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+      </section>
+    </main>
+    <footer>Joe Accounts · <a href="https://joe.mt/">joe.mt</a></footer>
+  </div>
+</body>
+</html>
